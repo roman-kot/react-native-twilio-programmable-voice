@@ -30,6 +30,9 @@ import androidx.localbroadcastmanager.content.LocalBroadcastManager;
 
 import com.twilio.voice.CallInvite;
 
+import androidx.core.app.ServiceCompat;
+import android.content.pm.ServiceInfo;
+
 import static com.hoxfon.react.RNTwilioVoice.CallNotificationManager.getMainActivityClass;
 import static com.hoxfon.react.RNTwilioVoice.TwilioVoiceModule.TAG;
 
@@ -65,11 +68,11 @@ public class IncomingCallNotificationService extends Service {
 
             case Constants.ACTION_JS_ANSWER:
                 endForeground();
-                break;   
+                break;
 
             case Constants.ACTION_JS_REJECT:
                 endForeground();
-                break;    
+                break;
 
             default:
                 break;
@@ -96,8 +99,9 @@ public class IncomingCallNotificationService extends Service {
         intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
 
         PendingIntent pendingIntent =
-                PendingIntent.getActivity(this, notificationId, intent, PendingIntent.FLAG_UPDATE_CURRENT);
-
+                PendingIntent.getActivity(this, notificationId, intent, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+        String callerName = callInvite.getCustomParameters().get("callerName");
+        String fromText = callerName != null ? callerName : callInvite.getFrom();
         /*
          * Pass the notification id and call sid to use as an identifier to cancel the
          * notification later
@@ -105,7 +109,7 @@ public class IncomingCallNotificationService extends Service {
         Bundle extras = new Bundle();
         extras.putString(Constants.CALL_SID_KEY, callInvite.getCallSid());
 
-        String contentText = callInvite.getFrom() + " " + getString(R.string.call_incoming_content);
+        String contentText = fromText + " " + getString(R.string.call_incoming_content);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             return buildNotification(contentText,
                     pendingIntent,
@@ -146,7 +150,7 @@ public class IncomingCallNotificationService extends Service {
                 context,
                 0,
                 intent,
-                PendingIntent.FLAG_UPDATE_CURRENT
+                PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE
         );
     }
 
@@ -177,15 +181,22 @@ public class IncomingCallNotificationService extends Service {
                 createActionPendingIntent(context, rejectIntent)
         ).build();
 
-        Intent acceptIntent = new Intent(context, IncomingCallNotificationService.class);
+        Intent acceptIntent = new Intent(context, getMainActivityClass(this));
+        acceptIntent.addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP);
+        acceptIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
         acceptIntent.setAction(Constants.ACTION_ACCEPT);
         acceptIntent.putExtra(Constants.INCOMING_CALL_INVITE, callInvite);
         acceptIntent.putExtra(Constants.INCOMING_CALL_NOTIFICATION_ID, notificationId);
-        NotificationCompat.Action answerAction = new NotificationCompat.Action.Builder(
-                android.R.drawable.ic_menu_call,
-                getActionText(context, R.string.accept, R.color.green),
-                createActionPendingIntent(context, acceptIntent)
-        ).build();
+        acceptIntent.putExtra(Constants.CALL_SID, callInvite.getCallSid());
+        acceptIntent.putExtra(Constants.CALL_FROM, callInvite.getFrom());
+        acceptIntent.putExtra(Constants.CALL_TO, callInvite.getTo());
+  
+        PendingIntent acceptPendingIntent = PendingIntent.getActivity(context, notificationId, acceptIntent, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+          NotificationCompat.Action answerAction = new NotificationCompat.Action.Builder(
+                  android.R.drawable.ic_menu_call,
+                  getActionText(context, R.string.accept, R.color.green),
+            acceptPendingIntent
+          ).build();
 
         NotificationCompat.Builder builder =
                 new NotificationCompat.Builder(context, channelId)
@@ -267,7 +278,7 @@ public class IncomingCallNotificationService extends Service {
 
     private void handleIncomingCall(CallInvite callInvite, int notificationId) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            setCallInProgressNotification(callInvite, notificationId);
+             setCallInProgressNotification(callInvite, notificationId);
         }
         sendCallInviteToActivity(callInvite, notificationId);
     }
@@ -288,7 +299,8 @@ public class IncomingCallNotificationService extends Service {
             }
             importance = NotificationManager.IMPORTANCE_HIGH;
         }
-        this.startForeground(notificationId, createNotification(callInvite, notificationId, importance));
+        
+        startForeground(notificationId, createNotification(callInvite, notificationId, importance));
     }
 
     /*
